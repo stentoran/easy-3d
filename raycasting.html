@@ -1,0 +1,317 @@
+<html>
+<head></head>
+<body>
+<canvas id='canvas'>You shouldn't see this</canvas>
+<canvas id='canvas-3d' height='160'>You shouldn't see this</canvas>
+<script>
+
+// to make into an actual game:
+// shooting
+// enemy movement
+// enemy spawning
+// powerups
+// figuring out how to get wall textures would be nice
+
+let canvas = document.querySelector('#canvas');
+let ctx = canvas.getContext('2d');
+let canvas3d = document.querySelector('#canvas-3d');
+let ctx3d = canvas3d.getContext('2d');
+let tileMap = [
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,1,0,0,0,0,2,0,0,0,0],
+[0,0,0,0,0,0,1,0,0,0,0,2,0,0,0,0],
+[0,0,0,0,0,0,1,0,0,0,0,2,0,0,0,0],
+[0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+];
+let w = 16;
+let h = 16;
+let img = document.createElement('img');
+img.src = 'testEnemy.png';
+let objects = [{x:50, y:50, img:img}];
+let objectsToDraw = [];
+function drawMap(tileMap) {
+    for (j in tileMap) {
+        for (i in tileMap[j]) {
+            ctx.fillStyle = 'black';
+            if (tileMap[j][i]) {
+                ctx.fillStyle = 'grey';
+            }
+            ctx.fillRect(i*w, j*h, w, h);
+            ctx.clearRect(i*w+w/4, j*h+h/4, w/2, h/2);
+        }
+    }
+}
+function dda(x1,y1,x2,y2) {
+    // detect collisions
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let step = Math.abs(dx);
+    if (Math.abs(dy) > Math.abs(dx)) step = Math.abs(dy);
+    let xi = dx/step;
+    let yi = dy/step;
+    let xs = x1;
+    let ys = y1;
+    let x = 0;
+    let y = 0;
+    let broken = false;
+    for (let i=0; i<step; i++) {
+        broken = true;
+        xs+=xi;
+        ys+=yi;
+        x = Math.floor(xs/w);
+        if (x<0) break;
+        if (x>tileMap[0].length-1) break;
+        y = Math.floor(ys/h);
+        if (y<0) break;
+        if (y>tileMap.length-1) break;
+        if (tileMap[y][x]) break;
+        broken = false;
+    }
+    return [broken, xs, ys];
+}
+function drawObject3d([object, d, w]) { // rename w
+    ctx3d.strokeStyle = 'green';
+    ctx3d.beginPath();
+    ctx3d.arc(w*canvas3d.width, canvas3d.height/2, 50*d, 0, 2*Math.PI);
+    ctx3d.stroke();
+    ctx3d.fillStyle = 'green';
+    ctx3d.fill();
+    ctx3d.drawImage(object.img, 0, 0, 16, 16, w*canvas3d.width-50*d/2, canvas3d.height/2-50*d/2, 50*d, 50*d);
+}
+function checkForObjects(objects) {
+    let vis = 50;
+    let ob1 = player;
+    for (object of objects) {
+        let xmax = Math.max(ob1.x, object.x)- Math.min(ob1.x, object.x);
+        let ymax = Math.abs(ob1.y - object.y);
+        let angle = Math.atan2(ob1.x-object.x, ob1.y-object.y)+Math.PI;
+        if (object.x - player.x > vis || object.x - player.x < -vis || object.y - player.y > vis || object.y - player.y < -vis) { // not too far away to see
+        } else {
+            if (ob1.r-ob1.fov < angle && ob1.r+ob1.fov > angle) { // in vision cone
+                let [broken, xs, ys] = dda(player.x, player.y, object.x, object.y);
+                if (!broken) { // will need to sort if multiple
+                    let d = Math.sqrt((xs-ob1.x)**2 +(ys-ob1.y)**2);
+                    d*=Math.cos(ob1.r - angle);
+                    d=Math.abs((d-vis)/vis); // turn into ratio, smallest for farthest away
+                    let w = Math.abs((angle - ob1.r-ob1.fov) / (ob1.fov*2)); // map fov radians to canvas width
+                    // in the future need an objectsToDraw array sorted by distance, draw farthest first
+                    objectsToDraw.push([object, d, w]);
+                }
+            }
+        }
+        
+    }
+}
+
+function drawLine(x1,y1,x2,y2,i,numRays,rayAngle) {
+    // detect collisions
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let step = Math.abs(dx);
+    if (Math.abs(dy) > Math.abs(dx)) step = Math.abs(dy);
+    let xi = dx/step;
+    let yi = dy/step;
+    let xs = x1;
+    let ys = y1;
+    let x = 0;
+    let y = 0;
+    let broken = false;
+    for (let i=0; i<step; i++) {
+        broken = true;
+        xs+=xi;
+        ys+=yi;
+        x = Math.floor(xs/w);
+        if (x<0) break;
+        if (x>tileMap[0].length-1) break;
+        y = Math.floor(ys/h);
+        if (y<0) break;
+        if (y>tileMap.length-1) break;
+        if (tileMap[y][x]) break;
+        broken = false;
+    }
+    // draw 2d
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(xs,ys);
+    ctx.stroke();
+    // draw 3d
+    let d = Math.sqrt((xs-x1)**2 +(ys-y1)**2);
+    let dmax = Math.sqrt((x2-x1)**2 +(y2-y1)**2);
+    // correct for fisheye effect
+    d*=Math.cos(player.r - rayAngle)
+    let width = canvas3d.width/numRays;
+    let drat = d/dmax;
+    let maxHeight = h*10;
+    let height = canvas3d.height;
+    // try to determing if vertical or horizontal side of wall was hit, needs improvement
+    let side = (xs/w - x) > (ys/h - y);
+    if (broken) {
+        ctx3d.fillStyle = 'darkblue';
+        if (side) ctx3d.fillStyle = 'blue';
+        if (!tileMap[y] || !tileMap[y][x]) ctx3d.fillStyle = 'darkred';
+        else if (tileMap[y][x] === 2) {
+            ctx3d.fillStyle = 'grey';
+        }
+        height = maxHeight-drat*maxHeight; // probably shouldnt use numrays here
+        if (height<0) height = 0;
+    ctx3d.fillRect(i*width, maxHeight/2-height/2, width, height);
+    }
+}
+
+function kd(event) {
+    let dx = 0;
+    let dy = 0;
+    let dr = 0;
+    let speed = player.speed;
+    console.log(event)
+    if (event.keyCode === 27) threeD = false;
+    if (mode === 'arrow') {
+        if (event.keyCode === 39) {
+            dx = speed;
+        } else if (event.keyCode === 37) {
+            dx = speed;
+        } else if (event.keyCode === 38) {
+            dy = speed;
+        } else if (event.keyCode === 40) {
+            dy = speed;
+        } else if (event.keyCode === 65) {
+            dr = Math.PI/4;
+        } else if (event.keyCode === 68) {
+            dr = -Math.PI/4;;
+        }
+    } else if (mode === 'combo') {
+        if (event.keyCode === 68) {
+            dx = speed;
+        } else if (event.keyCode === 65) {
+            dx = speed;
+        } else if (event.keyCode === 87) {
+            dy = speed;
+        } else if (event.keyCode === 83) {
+            dy = speed;
+        }
+    } else {
+        let d = 0;
+        let offset = 0;
+        if (event.keyCode === 87) {
+            d = speed;
+        } else if (event.keyCode === 83) {
+            d = -speed;
+        } else if (event.keyCode === 65) {
+            d = speed;
+            offset = Math.PI/2;
+        } else if (event.keyCode === 68) {
+            d = speed;
+            offset = -Math.PI/2;
+        }
+        dx = d*Math.sin(player.r+offset);
+        dy = d*Math.cos(player.r+offset);
+    }
+    let nx = player.x + dx;
+    let ny = player.y + dy;
+    let nr = player.r + dr;
+    player.r = nr;
+    let pwidth = w/4;
+    // check for collisions at 4 corners of players 'sprite'
+    let [tr, br, tl, bl] = [0, 0, 0, 0]
+    if (tileMap[Math.floor((ny+pwidth)/h)][Math.floor((nx+pwidth)/w)]) br = 1; // bottom right
+    if (tileMap[Math.floor((ny)/h)][Math.floor((nx+pwidth)/w)]) tr = 1; // top right
+    if (tileMap[Math.floor((ny+pwidth)/h)][Math.floor((nx)/w)]) bl = 1; // bottom left
+    if (tileMap[Math.floor((ny)/h)][Math.floor((nx)/w)]) tl = 1; // top left
+    // need player not to just stick to walls
+    if (tr && br && nx>player.x) nx = player.x; // can't go right
+    if (tl && bl && nx<player.x) nx = player.x; // can't go left
+    if (tl && tr && ny<player.y) ny = player.y; // can't go up
+    if (bl && br && ny>player.y) ny = player.y; // can't go down
+    
+    if (nx >= 0 && nx < w*tileMap[0].length) {
+        player.x = nx;
+    }
+    if (ny >= 0 && ny < h*tileMap.length) {
+        player.y = ny;
+    }
+}
+function drawUnit(unit) {
+    ctx.strokeStyle = 'green';
+    ctx.beginPath();
+    ctx.arc(unit.x, unit.y, w/8, 0, 2*Math.PI);
+    ctx.stroke();
+    ctx.fillStyle = 'green';
+    ctx.fill();
+}
+function castRays(numRays) {
+    ctx.strokeStyle = 'yellow';
+    let unit = player;
+    let d = unit.d * w;
+    let rotInc = unit.fov/numRays;
+    let n = 0;
+    for (let i=unit.r+unit.fov; i>unit.r-unit.fov; i-=rotInc) {
+        drawLine(unit.x, unit.y, unit.x+d*Math.sin(i)+w/2, unit.y+d*Math.cos(i)+h/2,n, numRays,i)
+        n++;
+    }
+}
+function getTile(px,py) {
+    let tx = Math.floor(px/w);
+    let ty = Math.floor(py/h);
+    return [tx, ty];
+}
+function drawMap3d() {
+    ctx3d.clearRect(0,0, 300, 300);
+    ctx3d.fillStyle = 'green';
+    ctx3d.fillRect(0, 0, 2*10*w, h*10);
+    ctx3d.fillStyle = 'skyblue';
+    ctx3d.fillRect(0, 0, canvas3d.width, canvas3d.height/2);
+}
+function loop() {
+    drawMap3d();
+    drawMap(tileMap);
+    drawUnit(player);
+    drawUnit(objects[0]);
+    castRays(20);
+    objectsToDraw = [];
+    checkForObjects(objects);
+    objectsToDraw.sort((a, b) => a[1] - b[1]); // untested
+    for (objectArray of objectsToDraw) {
+        drawObject3d(objectArray);
+    }
+}
+function mm(event) {
+    if (!threeD) {
+        let x1 = player.x+w/2;
+        let y1 = player.y+h/2;
+        let x2 = event.clientX;
+        let y2 = event.clientY;
+        player.r = Math.atan2((x2-x1),(y2-y1));
+    } else {
+        let dx = -event.movementX;
+        player.r += dx/100;
+    }
+}
+
+function c(){
+    if (document.pointerLockElement !== canvas) {
+        canvas.requestPointerLock();
+        threeD = true;
+    }
+}
+function mm2(event) {
+    dx = -event.movementX;
+    dy = -event.movementY;
+    console.log(dx,dy)
+}
+
+canvas3d.addEventListener('mousemove', mm2);
+canvas3d.addEventListener('click', c);
+
+let player = {x:0, y:0, r:0, d:5, fov:Math.PI/4, speed:3};
+let mode = 'wasd';
+let threeD = false;
+document.addEventListener('keydown', kd);
+document.onmousemove = mm
+setInterval(loop, 1000/30);
+
+</script>
+</body>
+</html>
